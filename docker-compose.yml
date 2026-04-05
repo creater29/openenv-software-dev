@@ -1,0 +1,21 @@
+version: "3.9"
+services:
+  agent:
+    build: .
+    image: openenv-software-dev:latest
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+      - API_KEY=${API_KEY}
+      - API_BASE_URL=${API_BASE_URL:-https://router.huggingface.co/v1}
+      - MODEL_NAME=${MODEL_NAME:-Qwen/Qwen2.5-72B-Instruct}
+    volumes:
+      - ./logs:/app/logs
+    stdin_open: true
+    tty: true
+
+  test:
+    build: .
+    image: openenv-software-dev:latest
+    command: ["python", "-m", "pytest", "tests/", "-v", "--tb=short"]
+    environment:
+      - HF_TOKEN=${HF_TOKEN}

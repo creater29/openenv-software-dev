@@ -1,0 +1,19 @@
+# Default environment configuration
+env:
+  difficulty: medium
+  max_steps: 30
+  enable_llm_grading: false
+  llm_endpoint: null
+
+reward:
+  test_weight: 1.0
+  quality_weight: 0.5
+  step_penalty: 0.02
+  terminal_weight: 5.0
+
+grader:
+  programmatic_weight: 0.7
+  llm_weight: 0.3
+
+sandbox:
+  executor_timeout: 10  # seconds before test run is killed
