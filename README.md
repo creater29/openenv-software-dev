@@ -1,3 +1,20 @@
+---
+title: SWE-Sim OpenEnv Software Engineering Simulator
+emoji: 🛠️
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+tags:
+  - openenv
+  - software-engineering
+  - debugging
+  - reinforcement-learning
+  - rl
+  - multi-step
+license: mit
+---
+
 # SWE-Sim: OpenEnv Software Engineering Simulator
 
 > An RL environment where agents debug, fix, and improve real-world codebases.  
