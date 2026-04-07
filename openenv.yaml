@@ -1,0 +1,103 @@
+name: swe-sim
+version: 1.0.0
+description: >-
+  SWE-Sim is an OpenEnv-compatible software engineering simulator where agents
+  debug APIs, resolve CI failures, and fix hidden-state bugs in realistic,
+  multi-file Python codebases.
+author: Meta PyTorch OpenEnv Hackathon Submission
+tags:
+  - software-engineering
+  - debugging
+  - multi-step
+  - rl
+  - openenv
+server:
+  framework: fastapi
+  host: 0.0.0.0
+  port: 7860
+  endpoints:
+    reset: POST /reset
+    step: POST /step
+    state: GET /state
+observation_model:
+  type: object
+  fields:
+    task: string
+    difficulty: string
+    step: integer
+    max_steps: integer
+    files: object|null
+    file: string|null
+    code: string|null
+    error_log: string|null
+    test_results: string|null
+    visible_tests: string|null
+    hidden_tests: string|null
+    last_reward: number
+    metadata: object
+action_model:
+  type: object
+  fields:
+    action: string
+    filename: string|null
+    code: string|null
+reward_model:
+  type: object
+  fields:
+    reward: number
+    tests_passed_ratio: number
+    improvement_over_last_step: number
+    step_penalty: number
+    destructive_action_penalty: number
+    components: object
+tasks:
+  - name: fix_broken_api
+    difficulty: [easy, medium, hard]
+    max_steps:
+      easy: 4
+      medium: 5
+      hard: 6
+    action_space:
+      - inspect
+      - submit
+    observation_space:
+      - file
+      - code
+      - error_log
+      - test_results
+    reward_range: [0.0, 1.0]
+
+  - name: resolve_ci_pipeline
+    difficulty: [easy, medium, hard]
+    max_steps:
+      easy: 8
+      medium: 10
+      hard: 12
+    action_space:
+      - inspect
+      - patch
+      - run_tests
+      - submit
+    observation_space:
+      - files
+      - error_log
+      - test_results
+    reward_range: [0.0, 1.0]
+
+  - name: debug_hidden_state
+    difficulty: [easy, medium, hard]
+    max_steps:
+      easy: 10
+      medium: 12
+      hard: 14
+    action_space:
+      - inspect
+      - patch
+      - run_tests
+      - submit
+    observation_space:
+      - files
+      - error_log
+      - visible_tests
+      - hidden_tests
+    reward_range: [0.0, 1.0]
