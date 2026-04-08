@@ -1,9 +1,13 @@
 from fastapi import FastAPI, HTTPException
 
+import random
 from server.env import ActionModel, OpenEnvSWEEnv, ResetRequest, StateResponse, StepResponse
 
 app = FastAPI(title="SWE-Sim OpenEnv Server", version="1.0.0")
 env = OpenEnvSWEEnv()
+
+_TASKS = ["fix_broken_api", "resolve_ci_pipeline", "debug_hidden_state"]
+_DIFFICULTIES = ["easy", "medium", "hard"]
 
 
 @app.get("/")
@@ -12,9 +16,12 @@ def root() -> dict:
 
 
 @app.post("/reset", response_model=StepResponse)
-def reset(request: ResetRequest) -> StepResponse:
+def reset(request: ResetRequest = ResetRequest()) -> StepResponse:
+    # If the validator sends an empty body, pick sensible defaults
+    task = request.task or random.choice(_TASKS)
+    difficulty = request.difficulty or "medium"
     try:
-        obs = env.reset(task=request.task, difficulty=request.difficulty)
+        obs = env.reset(task=task, difficulty=difficulty)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -29,7 +36,7 @@ def reset(request: ResetRequest) -> StepResponse:
             "components": {"reset": 0.0},
         },
         done=False,
-        info={"message": "Environment reset", "task": request.task, "difficulty": request.difficulty},
+        info={"message": "Environment reset", "task": task, "difficulty": difficulty},
     )
 
 

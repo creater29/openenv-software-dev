@@ -16,7 +16,16 @@ server:
   host: 0.0.0.0
   port: 7860
   endpoints:
-    reset: POST /reset
+    reset:
+      method: POST
+      path: /reset
+      body:
+        task:
+          type: string
+          required: false
+        difficulty:
+          type: string
+          required: false
     step: POST /step
     state: GET /state
 observation_model:

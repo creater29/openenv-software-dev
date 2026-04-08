@@ -48,8 +48,8 @@ class RewardModel(BaseModel):
 
 
 class ResetRequest(BaseModel):
-    task: str = Field(description="Task key: fix_broken_api, resolve_ci_pipeline, debug_hidden_state.")
-    difficulty: str = Field(default="medium", description="Difficulty level: easy, medium, hard.")
+    task: Optional[str] = Field(default=None, description="Task key: fix_broken_api, resolve_ci_pipeline, debug_hidden_state. If omitted, a random task is chosen.")
+    difficulty: Optional[str] = Field(default=None, description="Difficulty level: easy, medium, hard. If omitted, defaults to medium.")
 
 
 class StepResponse(BaseModel):
