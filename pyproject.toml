@@ -23,8 +23,10 @@ dependencies = [
 ]
 
 [project.scripts]
-# `openenv validate` looks for a console-script entry point that can
-# launch the server. This points to the __main__ callable in server/app.py.
+# `openenv validate` looks for a console-script entry point named `server`
+# to confirm the package is ready for multi-mode deployment.
+# Both `server` and `serve` are registered so either name works.
+server = "server.app:main"
 serve = "server.app:main"
 
 [project.optional-dependencies]
