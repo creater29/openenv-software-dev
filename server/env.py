@@ -94,7 +94,7 @@ class OpenEnvSWEEnv:
         task_obj = self._task_registry[task]()
         task_obj.reset(difficulty=difficulty)
         self._episode = _EpisodeState(task=task_obj, done=False)
-        return ObservationModel(**task_obj.observation(last_reward=0.0))
+        return ObservationModel(**task_obj.observation(last_reward=0.001))
 
     def step(self, action: ActionModel) -> Tuple[ObservationModel, RewardModel, bool, Dict[str, Any]]:
         if self._episode is None:
