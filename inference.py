@@ -97,7 +97,7 @@ def run_episode(task: str, difficulty: str, llm_client: OpenAI, http_client: htt
     rewards: List[float] = []
     steps = 0
     success = False
-    score = 0.0
+    score = 0.001
 
     print(f"[START] task={task} env={BENCHMARK} model={MODEL_NAME}")
 
@@ -113,7 +113,7 @@ def run_episode(task: str, difficulty: str, llm_client: OpenAI, http_client: htt
 
             step_error = None
             done = False
-            reward_value = 0.0
+            reward_value = 0.001
             try:
                 step_resp = _post_json(http_client, "/step", action)
                 observation = step_resp["observation"]
@@ -138,16 +138,16 @@ def run_episode(task: str, difficulty: str, llm_client: OpenAI, http_client: htt
         state_resp = http_client.get(f"{OPENENV_URL}/state", timeout=30)
         state_resp.raise_for_status()
         score = float(state_resp.json().get("score", score))
-        score = max(0.0, min(1.0, score))
+        score = max(0.001, min(0.999, score))
         success = score >= 0.99
     except Exception as exc:  # noqa: BLE001
-        rewards.append(0.0)
+        rewards.append(0.001)
         print(
             f"[STEP] step={steps if steps > 0 else 1} action={{}} reward=0.00 "
             f"done=true error={_single_line(str(exc))}"
         )
         success = False
-        score = 0.0
+        score = 0.001
     finally:
         rewards_str = ",".join(_fmt_reward(r) for r in rewards)
         print(

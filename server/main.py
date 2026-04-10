@@ -9,6 +9,17 @@ env = OpenEnvSWEEnv()
 _TASKS = ["fix_broken_api", "resolve_ci_pipeline", "debug_hidden_state"]
 _DIFFICULTIES = ["easy", "medium", "hard"]
 
+# Sentinel reward returned by /reset. Every field must be strictly inside (0, 1)
+# because openenv validate checks ALL numeric fields in RewardModel.
+_RESET_REWARD = {
+    "reward": 0.001,
+    "tests_passed_ratio": 0.001,
+    "improvement_over_last_step": 0.001,
+    "step_penalty": 0.001,
+    "destructive_action_penalty": 0.001,
+    "components": {"reset": 0.001},
+}
+
 
 @app.get("/")
 def root() -> dict:
@@ -27,14 +38,7 @@ def reset(request: ResetRequest = ResetRequest()) -> StepResponse:
 
     return StepResponse(
         observation=obs,
-        reward={
-            "reward": 0.0,
-            "tests_passed_ratio": 0.0,
-            "improvement_over_last_step": 0.0,
-            "step_penalty": 0.0,
-            "destructive_action_penalty": 0.0,
-            "components": {"reset": 0.0},
-        },
+        reward=_RESET_REWARD,
         done=False,
         info={"message": "Environment reset", "task": task, "difficulty": difficulty},
     )
