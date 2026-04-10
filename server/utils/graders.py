@@ -1,39 +1,34 @@
 from __future__ import annotations
 
-from typing import Dict
+from typing import Any, Dict
 
-# openenv validate requires every score field to be strictly inside (0, 1).
-# Exact 0.0 and 1.0 are both rejected. We use epsilon boundaries.
+# openenv validate walks the ENTIRE response tree and rejects any float
+# that is <= 0.0 or >= 1.0.  Use these as the safe open-interval bounds.
 _SCORE_MIN = 0.001
 _SCORE_MAX = 0.999
 
 
-def clamp_score(value: float, minimum: float = _SCORE_MIN, maximum: float = _SCORE_MAX) -> float:
-    """Clamp value to the open interval (0, 1) required by openenv validate."""
-    return max(minimum, min(maximum, value))
+def clamp_score(value: float) -> float:
+    """Clamp a single float to the open interval (0, 1)."""
+    return max(_SCORE_MIN, min(_SCORE_MAX, value))
 
 
-def sanitize_reward_dict(reward: Dict[str, float]) -> Dict[str, float]:
-    """Ensure every top-level numeric field in a reward dict is strictly in (0, 1).
+def sanitize_any(obj: Any) -> Any:
+    """Recursively walk obj and clamp every float to (_SCORE_MIN, _SCORE_MAX).
 
-    The openenv validator checks ALL numeric fields in the RewardModel, not just
-    'reward'. Fields like tests_passed_ratio, improvement_over_last_step,
-    step_penalty, and destructive_action_penalty must all satisfy 0 < x < 1.
-
-    Negative values (e.g. improvement when score drops) and values > 1 are all
-    clamped to [_SCORE_MIN, _SCORE_MAX]. The 'components' sub-dict is left as-is
-    because the validator does not appear to recurse into it.
+    The openenv validator recurses into every nested dict and list in the
+    JSON response, including reward.components and observation.metadata.weights.
+    This function must be applied to BOTH the reward dict AND the full
+    observation dict before they are returned in any response.
     """
-    sanitized = {}
-    for key, value in reward.items():
-        if key == "components":
-            # Leave component breakdown untouched — validator ignores sub-dicts
-            sanitized[key] = value
-        elif isinstance(value, float):
-            sanitized[key] = clamp_score(value)
-        else:
-            sanitized[key] = value
-    return sanitized
+    if isinstance(obj, dict):
+        return {k: sanitize_any(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [sanitize_any(v) for v in obj]
+    if isinstance(obj, float):
+        return clamp_score(obj)
+    # int, str, bool, None pass through untouched
+    return obj
 
 
 def compute_destructive_penalty(files: Dict[str, str]) -> float:

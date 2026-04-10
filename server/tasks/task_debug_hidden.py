@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Tuple
 
 from server.utils.code_runner import run_pytest_in_sandbox
-from server.utils.graders import clamp_score, compute_destructive_penalty, sanitize_reward_dict
+from server.utils.graders import clamp_score, compute_destructive_penalty
 
 
 class DebugHiddenStateTask:
@@ -138,7 +138,7 @@ class DebugHiddenStateTask:
             },
         }
         info["score"] = self.current_score
-        return sanitize_reward_dict(reward), done, info
+        return reward, done, info
 
     def _visible_summary(self) -> str:
         total = self._visible_total_for_difficulty()

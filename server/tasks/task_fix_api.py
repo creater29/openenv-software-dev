@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 
 from server.utils.code_runner import run_pytest_in_sandbox
-from server.utils.graders import clamp_score, compute_destructive_penalty, compute_shaped_reward, sanitize_reward_dict
+from server.utils.graders import clamp_score, compute_destructive_penalty, compute_shaped_reward
 
 
 class FixBrokenApiTask:
@@ -114,7 +114,7 @@ class FixBrokenApiTask:
             },
         }
         info["score"] = self.current_score
-        return sanitize_reward_dict(reward), done, info
+        return reward, done, info
 
     def _evaluate_code(self, code: str) -> Dict[str, Any]:
         files = {self.file_name: code}
