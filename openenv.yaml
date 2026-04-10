@@ -74,7 +74,7 @@ tasks:
       - code
       - error_log
       - test_results
-    reward_range: [0.0, 1.0]
+    reward_range: [0.001, 0.999]
 
   - name: resolve_ci_pipeline
     difficulty: [easy, medium, hard]
@@ -91,7 +91,7 @@ tasks:
       - files
       - error_log
       - test_results
-    reward_range: [0.0, 1.0]
+    reward_range: [0.001, 0.999]
 
   - name: debug_hidden_state
     difficulty: [easy, medium, hard]
@@ -109,4 +109,4 @@ tasks:
       - error_log
       - visible_tests
       - hidden_tests
-    reward_range: [0.0, 1.0]
+    reward_range: [0.001, 0.999]

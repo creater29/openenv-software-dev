@@ -2,8 +2,20 @@ from __future__ import annotations
 
 from typing import Dict
 
+# openenv validate requires scores to be strictly inside the open interval (0, 1).
+# Exact 0.0 and 1.0 are rejected, so we use a small epsilon to keep values
+# safely away from both boundaries while preserving the full semantic range.
+_SCORE_MIN = 0.001
+_SCORE_MAX = 0.999
 
-def clamp_score(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
+
+def clamp_score(value: float, minimum: float = _SCORE_MIN, maximum: float = _SCORE_MAX) -> float:
+    """Clamp *value* to the open interval (0, 1) required by openenv validate.
+
+    The defaults enforce the strict boundary: no score ever equals exactly 0.0
+    or 1.0.  Callers that previously passed explicit minimum/maximum of 0.0/1.0
+    should remove those keyword arguments so the safe defaults apply.
+    """
     return max(minimum, min(maximum, value))
 
 
