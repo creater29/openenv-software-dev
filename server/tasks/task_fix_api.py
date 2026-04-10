@@ -98,7 +98,7 @@ class FixBrokenApiTask:
         self.last_pass_ratio = current_ratio
         self.current_score = clamp_score(current_ratio)
 
-        done = current_ratio >= 1.0 or self.steps_taken >= self.max_steps
+        done = current_ratio >= 0.99 or self.steps_taken >= self.max_steps
 
         reward = {
             "reward": reward_value,

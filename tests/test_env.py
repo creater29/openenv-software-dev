@@ -20,7 +20,7 @@ def test_state_endpoint_payload_shape():
     state = env.state()
     assert state.ready is True
     assert state.task == "resolve_ci_pipeline"
-    assert 0.0 <= state.score <= 1.0
+    assert 0.001 <= state.score <= 0.999
 
 
 def test_step_score_bounds_for_all_tasks():
@@ -35,9 +35,9 @@ def test_step_score_bounds_for_all_tasks():
     env.reset(task="debug_hidden_state", difficulty="hard")
     _, reward_3, _, _ = env.step(ActionModel(action="run_tests"))
 
-    assert 0.0 <= reward_1.reward <= 1.0
-    assert 0.0 <= reward_2.reward <= 1.0
-    assert 0.0 <= reward_3.reward <= 1.0
+    assert 0.001 <= reward_1.reward <= 0.999
+    assert 0.001 <= reward_2.reward <= 0.999
+    assert 0.001 <= reward_3.reward <= 0.999
 
 
 def test_episode_ends_on_max_steps():

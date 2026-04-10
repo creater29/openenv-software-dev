@@ -113,7 +113,7 @@ class OpenEnvSWEEnv:
 
         observation = _build_observation(self._episode.task, last_reward=reward_dict["reward"])
         reward = _build_reward(reward_dict)
-        return observation, reward, done, info
+        return observation, reward, done, sanitize_any(info)
 
     def state(self) -> StateResponse:
         if self._episode is None:
@@ -127,5 +127,5 @@ class OpenEnvSWEEnv:
             max_steps=task.max_steps,
             done=self._episode.done,
             score=max(0.001, min(0.999, task.current_score)),
-            internal=task.state(),
+            internal=sanitize_any(task.state()),
         )

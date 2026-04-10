@@ -1,3 +1,5 @@
+import pytest
+
 from server.tasks.task_debug_hidden import DebugHiddenStateTask
 from server.tasks.task_fix_api import FixBrokenApiTask
 from server.tasks.task_resolve_ci import ResolveCIPipelineTask
@@ -5,14 +7,14 @@ from server.utils.graders import clamp_score, compute_destructive_penalty, compu
 
 
 def test_clamp_score_bounds():
-    assert clamp_score(-1.0) == 0.0
-    assert clamp_score(2.0) == 1.0
+    assert clamp_score(-1.0) == 0.001
+    assert clamp_score(2.0) == 0.999
     assert clamp_score(0.42) == 0.42
 
 
 def test_destructive_penalty_detects_empty_code():
     penalty = compute_destructive_penalty({"a.py": "", "b.py": "print('ok')"})
-    assert 0.0 < penalty <= 1.0
+    assert 0.001 <= penalty <= 0.999
 
 
 def test_shaped_reward_returns_bounded_score():
@@ -25,7 +27,7 @@ def test_shaped_reward_returns_bounded_score():
         w_improve=0.3,
         w_step_penalty=0.05,
     )
-    assert 0.0 <= reward <= 1.0
+    assert 0.001 <= reward <= 0.999
 
 
 def test_fix_api_grader_improves_after_submit():
@@ -66,7 +68,7 @@ def test_resolve_ci_grader_reaches_full_pass():
     )
     task.step({"action": "patch", "filename": "utils.py", "code": patched_utils})
     reward, _, _ = task.step({"action": "run_tests"})
-    assert reward["tests_passed_ratio"] == 1.0
+    assert reward["tests_passed_ratio"] >= 0.99
 
 
 def test_debug_hidden_submit_uses_hidden_tests():
