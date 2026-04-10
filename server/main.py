@@ -1,6 +1,8 @@
-from fastapi import FastAPI, HTTPException
+from __future__ import annotations
 
 import random
+from fastapi import FastAPI, HTTPException
+
 from server.env import ActionModel, OpenEnvSWEEnv, ResetRequest, StateResponse, StepResponse
 
 app = FastAPI(title="SWE-Sim OpenEnv Server", version="1.0.0")
@@ -9,8 +11,9 @@ env = OpenEnvSWEEnv()
 _TASKS = ["fix_broken_api", "resolve_ci_pipeline", "debug_hidden_state"]
 _DIFFICULTIES = ["easy", "medium", "hard"]
 
-# Sentinel reward returned by /reset. Every field must be strictly inside (0, 1)
-# because openenv validate checks ALL numeric fields in RewardModel.
+# Sentinel reward returned by /reset.
+# Every float must be strictly inside (0, 1) — the openenv validator rejects
+# exactly 0.0 and exactly 1.0 in ANY numeric field of the response.
 _RESET_REWARD = {
     "reward": 0.001,
     "tests_passed_ratio": 0.001,
@@ -28,9 +31,13 @@ def root() -> dict:
 
 @app.post("/reset", response_model=StepResponse)
 def reset(request: ResetRequest = ResetRequest()) -> StepResponse:
-    # If the validator sends an empty body, pick sensible defaults
+    """Reset the environment to a clean episode.
+
+    If the validator sends an empty body, sensible defaults are chosen.
+    """
     task = request.task or random.choice(_TASKS)
     difficulty = request.difficulty or "medium"
+
     try:
         obs = env.reset(task=task, difficulty=difficulty)
     except ValueError as exc:
@@ -46,6 +53,7 @@ def reset(request: ResetRequest = ResetRequest()) -> StepResponse:
 
 @app.post("/step", response_model=StepResponse)
 def step(action: ActionModel) -> StepResponse:
+    """Advance the episode by one step."""
     try:
         observation, reward, done, info = env.step(action)
     except RuntimeError as exc:
@@ -58,4 +66,5 @@ def step(action: ActionModel) -> StepResponse:
 
 @app.get("/state", response_model=StateResponse)
 def state() -> StateResponse:
+    """Return the current environment state snapshot."""
     return env.state()

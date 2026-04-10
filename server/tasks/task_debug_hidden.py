@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Tuple
 
 from server.utils.code_runner import run_pytest_in_sandbox
-from server.utils.graders import clamp_score, compute_destructive_penalty
+from server.utils.graders import _SCORE_MAX, _SCORE_MIN, clamp_score, compute_destructive_penalty
 
 
 class DebugHiddenStateTask:
@@ -127,14 +127,14 @@ class DebugHiddenStateTask:
             "reward": reward_value,
             "tests_passed_ratio": combined_ratio,
             "improvement_over_last_step": improvement,
-            "step_penalty": 0.02 * self.steps_taken,
+            "step_penalty": clamp_score(0.02 * self.steps_taken),
             "destructive_action_penalty": destructive_penalty,
             "components": {
-                "visible": 0.5 * self.visible_ratio,
-                "hidden": 0.5 * self.hidden_ratio,
-                "improve": 0.2 * improvement,
-                "step": -(0.02 * self.steps_taken),
-                "destructive": -destructive_penalty,
+                "visible": clamp_score(0.5 * self.visible_ratio),
+                "hidden": clamp_score(0.5 * self.hidden_ratio),
+                "improve": clamp_score(0.2 * abs(improvement)),
+                "step": clamp_score(0.02 * self.steps_taken),
+                "destructive": clamp_score(destructive_penalty),
             },
         }
         info["score"] = self.current_score

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 
 from server.utils.code_runner import run_pytest_in_sandbox
-from server.utils.graders import clamp_score, compute_destructive_penalty, compute_shaped_reward
+from server.utils.graders import _SCORE_MAX, _SCORE_MIN, clamp_score, compute_destructive_penalty, compute_shaped_reward
 
 
 class FixBrokenApiTask:
@@ -98,19 +98,19 @@ class FixBrokenApiTask:
         self.last_pass_ratio = current_ratio
         self.current_score = clamp_score(current_ratio)
 
-        done = current_ratio >= 1.0 or self.steps_taken >= self.max_steps
+        done = current_ratio >= _SCORE_MAX or self.steps_taken >= self.max_steps
 
         reward = {
             "reward": reward_value,
             "tests_passed_ratio": current_ratio,
             "improvement_over_last_step": improvement,
-            "step_penalty": 0.03 * self.steps_taken,
+            "step_penalty": clamp_score(0.03 * self.steps_taken),
             "destructive_action_penalty": destructive_penalty,
             "components": {
-                "pass": 0.75 * current_ratio,
-                "improve": 0.25 * improvement,
-                "step": -(0.03 * self.steps_taken),
-                "destructive": -destructive_penalty,
+                "pass": clamp_score(0.75 * current_ratio),
+                "improve": clamp_score(0.25 * abs(improvement)),
+                "step": clamp_score(0.03 * self.steps_taken),
+                "destructive": clamp_score(destructive_penalty),
             },
         }
         info["score"] = self.current_score
