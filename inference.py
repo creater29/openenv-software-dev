@@ -64,6 +64,7 @@ def _build_system_prompt(task: str, difficulty: str) -> str:
         f"Task={task}, difficulty={difficulty}. "
         "Return exactly one JSON object with keys: action, filename (optional), code (optional). "
         "Allowed actions are inspect, patch, run_tests, submit; for fix_broken_api use inspect or submit. "
+        "For resolve_ci_pipeline the bug is in utils.py (normalize divides by len instead of sum) — patch utils.py. "
         "Prefer minimal, correct fixes and avoid destructive rewrites."
     )
 

@@ -143,21 +143,23 @@ class ResolveCIPipelineTask:
         return f"{passed} passing, {total - passed} failing"
 
     def _broken_files(self, difficulty: str) -> Dict[str, str]:
+        # BUG: normalize divides by len(values) instead of sum(values),
+        # so the output does not sum to 1.0 — all pipeline tests fail.
+        utils_broken = (
+            "def normalize(values):\n"
+            "    if not values:\n"
+            "        return []\n"
+            "    total = len(values)  # BUG: should be sum(values)\n"
+            "    return [v / total for v in values]\n\n"
+            "def moving_average(values):\n"
+            "    if len(values) < 2:\n"
+            "        return values\n"
+            "    out = []\n"
+            "    for i in range(len(values) - 1):\n"
+            "        out.append((values[i] + values[i + 1]) / 2)\n"
+            "    return out\n"
+        )
         if difficulty == "hard":
-            utils_logic = (
-                "def normalize(values):\n"
-                "    if not values:\n"
-                "        return []\n"
-                "    total = len(values)\n"
-                "    return [v / total for v in values]\n\n"
-                "def moving_average(values):\n"
-                "    if len(values) < 2:\n"
-                "        return values\n"
-                "    out = []\n"
-                "    for i in range(len(values) - 1):\n"
-                "        out.append((values[i] + values[i + 1]) / 2)\n"
-                "    return out\n"
-            )
             main_code = (
                 "from utils import normalize, moving_average\n\n"
                 "def pipeline(values):\n"
@@ -168,20 +170,6 @@ class ResolveCIPipelineTask:
                 "    return round(sum(out), 3)\n"
             )
         else:
-            utils_logic = (
-                "def normalize(values):\n"
-                "    if not values:\n"
-                "        return []\n"
-                "    total = len(values)\n"
-                "    return [v / total for v in values]\n\n"
-                "def moving_average(values):\n"
-                "    if len(values) < 2:\n"
-                "        return values\n"
-                "    out = []\n"
-                "    for i in range(len(values) - 1):\n"
-                "        out.append((values[i] + values[i + 1]) / 2)\n"
-                "    return out\n"
-            )
             main_code = (
                 "from utils import normalize, moving_average\n\n"
                 "def pipeline(values):\n"
@@ -191,7 +179,7 @@ class ResolveCIPipelineTask:
                 "    out = pipeline(values)\n"
                 "    return round(sum(out), 6)\n"
             )
-        return {"main.py": main_code, "utils.py": utils_logic}
+        return {"main.py": main_code, "utils.py": utils_broken}
 
     def _tests(self, difficulty: str) -> str:
         extra = "\n\ndef test_pipeline_balanced_case():\n    assert quality_gate([2, 2, 2, 2]) == 1.0\n" if difficulty == "hard" else ""

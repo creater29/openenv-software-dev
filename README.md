@@ -91,11 +91,24 @@ guaranteed to be strictly between 0 and 1 (open interval).
 
 ## Baseline Scores
 
-| task | model | score | steps |
-|------|-------|-------|-------|
-| fix_broken_api | GPT-4 class | 0.93 | 2 |
-| resolve_ci_pipeline | GPT-4 class | 0.88 | 4 |
-| debug_hidden_state | GPT-4 class | 0.81 | 6 |
+Scores are shaped rewards clamped to the open interval (0.001, 0.999). The formula
+charges a per-step penalty, so even a perfect fix does not reach 1.0.
+
+| Task | Agent | Reward | Steps | Notes |
+|------|-------|--------|-------|-------|
+| fix_broken_api | Heuristic | 0.939 | 2 | inspect → submit; all 3 hidden tests pass |
+| resolve_ci_pipeline | Heuristic | 0.849 | 3 | patch utils.py → run_tests → submit |
+| debug_hidden_state | Heuristic | 0.939 | 3 | patch config.py → run_tests → submit |
+
+Formula derivation for `fix_broken_api` (2 steps, W_pass=0.75, W_improve=0.25, W_step=0.03):
+`reward = (1.0×0.75) + (1.0×0.25) − (2×0.03) − 0.001 = 0.939`
+
+For `resolve_ci_pipeline` (3 steps, W_pass=1.0, W_improve=0.3, W_step=0.05):
+improvement=0 at submit because run_tests already raised ratio to 1.0:
+`reward = (1.0×1.0) + (0.0×0.3) − (3×0.05) − 0.001 = 0.849`
+
+For `debug_hidden_state` (3 steps, 0.5×visible + 0.5×hidden, W_improve=0.2, W_step=0.02):
+`reward = (0.5×1.0 + 0.5×1.0) + (0.0×0.2) − (3×0.02) − 0.001 = 0.939`
 
 ## Setup and Usage
 
