@@ -87,8 +87,8 @@ class ResolveCIPipelineTask:
             result = self._evaluate(self.files)
             current_ratio = result["pass_ratio"]
             self.error_log = result["output"]
-            info["tests_passed"] = result["passed"]
-            info["tests_total"] = result["total"]
+            info["tests_passed"] = str(result["passed"])   # string — not a score field
+            info["tests_total"] = str(result["total"])
         else:
             self.error_log = f"Unsupported action: {action_name}"
 

@@ -95,18 +95,18 @@ class DebugHiddenStateTask:
             visible = self._run_visible_tests()
             self.visible_ratio = visible["ratio"]
             self.error_log = visible["output"]
-            info["visible_passed"] = visible["passed"]
-            info["visible_total"] = visible["total"]
+            info["visible_passed"] = str(visible["passed"])   # string — not a score field
+            info["visible_total"] = str(visible["total"])
         elif action_name == "submit":
             visible = self._run_visible_tests()
             hidden = self._run_hidden_tests()
             self.visible_ratio = visible["ratio"]
             self.hidden_ratio = hidden["ratio"]
             self.error_log = hidden["output"] or visible["output"]
-            info["visible_passed"] = visible["passed"]
-            info["visible_total"] = visible["total"]
-            info["hidden_passed"] = hidden["passed"]
-            info["hidden_total"] = hidden["total"]
+            info["visible_passed"] = str(visible["passed"])   # string — not a score field
+            info["visible_total"] = str(visible["total"])
+            info["hidden_passed"] = str(hidden["passed"])
+            info["hidden_total"] = str(hidden["total"])
             done = True
         else:
             self.error_log = f"Unsupported action: {action_name}"

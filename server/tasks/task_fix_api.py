@@ -79,8 +79,8 @@ class FixBrokenApiTask:
                 result = self._evaluate_code(self.current_code)
                 current_ratio = result["pass_ratio"]
                 self.error_log = result["output"]
-                info["tests_passed"] = result["passed"]
-                info["tests_total"] = result["total"]
+                info["tests_passed"] = str(result["passed"])   # string — not a score field
+                info["tests_total"] = str(result["total"])
         else:
             self.error_log = f"Unsupported action for {self.name}: {action_name}"
 
