@@ -45,7 +45,7 @@ class ResolveCIPipelineTask:
             "metadata": {
                 "allowed_actions": ["inspect", "patch", "run_tests", "submit"],
                 "weights": {
-                    "W_pass": 1.0,
+                    "W_pass": 0.999,   # never emit literal 1.0 — validator rejects exact 1.0
                     "W_improve": 0.3,
                     "W_step_penalty": 0.05,
                 },
@@ -99,7 +99,7 @@ class ResolveCIPipelineTask:
             improvement_over_last_step=improvement,
             steps_taken=self.steps_taken,
             destructive_action_penalty=destructive_penalty,
-            w_pass=1.0,
+            w_pass=0.999,   # never pass literal 1.0 — output of reward formula could hit 1.0 exactly
             w_improve=0.3,
             w_step_penalty=0.05,
         )
@@ -116,7 +116,7 @@ class ResolveCIPipelineTask:
             "step_penalty": clamp_score(0.05 * self.steps_taken),
             "destructive_action_penalty": clamp_score(destructive_penalty),
             "components": {
-                "pass": clamp_score(1.0 * current_ratio),
+                "pass": clamp_score(0.999 * current_ratio),   # coefficient matches w_pass above
                 "improve": clamp_score(0.3 * abs(improvement)),
                 "step": clamp_score(0.05 * self.steps_taken),
                 "destructive": clamp_score(destructive_penalty),
