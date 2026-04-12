@@ -33,8 +33,8 @@ observation_model:
   fields:
     task: string
     difficulty: string
-    step: integer
-    max_steps: integer
+    step: string
+    max_steps: string
     files: object|null
     file: string|null
     code: string|null
