@@ -136,35 +136,43 @@ class FixBrokenApiTask:
 
     def _broken_code(self, difficulty: str) -> str:
         if difficulty == "easy":
+            # Tests: [1,2,3]==6, [10]==10, []==0
+            # sum(items) if items else -1 => [1,2,3]=6 PASS, [10]=10 PASS, []=-1 FAIL => 2/3
             return (
                 "from fastapi import FastAPI\n\n"
                 "app = FastAPI()\n\n"
                 "def compute_total(items):\n"
-                "    return sum(item)\n\n"
+                "    # BUG: returns wrong sentinel for empty list\n"
+                "    return sum(items) if items else -1\n\n"
                 "@app.get('/total')\n"
                 "def total_route():\n"
                 "    values = [1, 2, 3]\n"
                 "    return {'total': compute_total(values)}\n"
             )
         if difficulty == "hard":
+            # Tests: [1,2,3]==6, []==0, [5,-2,4]==7
+            # sum(abs(x) for x in items) if items else 0
+            # => [1,2,3]=6 PASS, []=0 PASS, [5,-2,4]=11 FAIL => 2/3
             return (
                 "from fastapi import FastAPI\n\n"
                 "app = FastAPI()\n\n"
                 "def compute_total(items):\n"
-                "    if not items:\n"
-                "        return 1\n"
-                "    total = sum(items)\n"
-                "    return total - 1\n\n"
+                "    # BUG: takes absolute value of each element before summing\n"
+                "    return sum(abs(x) for x in items) if items else 0\n\n"
                 "@app.get('/total')\n"
                 "def total_route():\n"
                 "    values = [1, 2, 3]\n"
                 "    return {'total': compute_total(values)}\n"
             )
+        # medium: Tests: [4,6]==10, [0,0,0]==0, [-1,1,2]==2
+        # sum(x for x in items if x >= 0)
+        # => [4,6]=10 PASS, [0,0,0]=0 PASS, [-1,1,2]=3 FAIL => 2/3
         return (
             "from fastapi import FastAPI\n\n"
             "app = FastAPI()\n\n"
             "def compute_total(items):\n"
-            "    return sum(items) - 1\n\n"
+            "    # BUG: filters out negative numbers before summing\n"
+            "    return sum(x for x in items if x >= 0)\n\n"
             "@app.get('/total')\n"
             "def total_route():\n"
             "    values = [1, 2, 3]\n"
