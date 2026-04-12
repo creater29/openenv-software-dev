@@ -15,10 +15,10 @@ class DebugHiddenStateTask:
         self.max_steps = 14
         self.files: Dict[str, str] = {}
         self.error_log = "TypeError: NoneType object is not subscriptable (line 42)"
-        self.visible_ratio = 0.0
-        self.hidden_ratio = 0.0
-        self.last_combined_ratio = 0.0
-        self.current_score = 0.0
+        self.visible_ratio = _SCORE_MIN         # never raw 0.0
+        self.hidden_ratio = _SCORE_MIN          # never raw 0.0
+        self.last_combined_ratio = _SCORE_MIN   # never raw 0.0
+        self.current_score = _SCORE_MIN         # never raw 0.0
 
     def reset(self, difficulty: str = "hard") -> None:
         self.difficulty = difficulty
@@ -27,10 +27,10 @@ class DebugHiddenStateTask:
         self.files = self._broken_files(difficulty)
 
         visible = self._run_visible_tests()
-        self.visible_ratio = visible["ratio"]
-        self.hidden_ratio = 0.0
-        self.last_combined_ratio = 0.5 * self.visible_ratio
-        self.current_score = 0.0
+        self.visible_ratio = visible["ratio"]       # already clamped by _run_visible_tests
+        self.hidden_ratio = _SCORE_MIN              # never raw 0.0 — hidden not yet evaluated
+        self.last_combined_ratio = clamp_score(0.5 * self.visible_ratio)
+        self.current_score = _SCORE_MIN             # never raw 0.0
         self.error_log = visible["output"] or "TypeError: NoneType object is not subscriptable (line 42)"
 
     def observation(self, last_reward: float) -> Dict[str, Any]:
@@ -125,10 +125,10 @@ class DebugHiddenStateTask:
 
         reward = {
             "reward": reward_value,
-            "tests_passed_ratio": combined_ratio,
-            "improvement_over_last_step": improvement,
+            "tests_passed_ratio": clamp_score(combined_ratio),
+            "improvement_over_last_step": clamp_score(improvement),
             "step_penalty": clamp_score(0.02 * self.steps_taken),
-            "destructive_action_penalty": destructive_penalty,
+            "destructive_action_penalty": clamp_score(destructive_penalty),
             "components": {
                 "visible": clamp_score(0.5 * self.visible_ratio),
                 "hidden": clamp_score(0.5 * self.hidden_ratio),

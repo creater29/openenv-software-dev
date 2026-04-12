@@ -16,8 +16,8 @@ class FixBrokenApiTask:
         self.file_name = "app.py"
         self.current_code = ""
         self.error_log = ""
-        self.last_pass_ratio = 0.0
-        self.current_score = 0.0
+        self.last_pass_ratio = _SCORE_MIN   # never raw 0.0
+        self.current_score = _SCORE_MIN     # never raw 0.0
 
     def reset(self, difficulty: str = "medium") -> None:
         self.difficulty = difficulty
@@ -25,8 +25,8 @@ class FixBrokenApiTask:
         self.max_steps = {"easy": 4, "medium": 5, "hard": 6}.get(difficulty, 5)
         self.current_code = self._broken_code(difficulty)
         baseline = self._evaluate_code(self.current_code)
-        self.last_pass_ratio = baseline["pass_ratio"]
-        self.current_score = 0.0
+        self.last_pass_ratio = baseline["pass_ratio"]   # already clamped by _evaluate_code
+        self.current_score = _SCORE_MIN                 # never raw 0.0
         self.error_log = baseline["output"] or "NameError in route handler"
 
     def observation(self, last_reward: float) -> Dict[str, Any]:
@@ -102,10 +102,10 @@ class FixBrokenApiTask:
 
         reward = {
             "reward": reward_value,
-            "tests_passed_ratio": current_ratio,
-            "improvement_over_last_step": improvement,
+            "tests_passed_ratio": clamp_score(current_ratio),
+            "improvement_over_last_step": clamp_score(improvement),
             "step_penalty": clamp_score(0.03 * self.steps_taken),
-            "destructive_action_penalty": destructive_penalty,
+            "destructive_action_penalty": clamp_score(destructive_penalty),
             "components": {
                 "pass": clamp_score(0.75 * current_ratio),
                 "improve": clamp_score(0.25 * abs(improvement)),
