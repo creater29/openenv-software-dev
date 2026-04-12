@@ -153,7 +153,7 @@ class DebugHiddenStateTask:
         result = run_pytest_in_sandbox(files=self.files, tests=tests, timeout_seconds=10)
         passed = int(result["passed"])
         total = int(result["total"])
-        ratio = 0.0 if total == 0 else passed / total
+        ratio = _SCORE_MIN if total == 0 else passed / total  # never a raw 0.0
         return {"passed": passed, "total": total, "ratio": clamp_score(ratio), "output": result["output"]}
 
     def _run_hidden_tests(self) -> Dict[str, Any]:
@@ -161,7 +161,7 @@ class DebugHiddenStateTask:
         result = run_pytest_in_sandbox(files=self.files, tests=tests, timeout_seconds=10)
         passed = int(result["passed"])
         total = int(result["total"])
-        ratio = 0.0 if total == 0 else passed / total
+        ratio = _SCORE_MIN if total == 0 else passed / total  # never a raw 0.0
         return {"passed": passed, "total": total, "ratio": clamp_score(ratio), "output": result["output"]}
 
     def _broken_files(self, difficulty: str) -> Dict[str, str]:

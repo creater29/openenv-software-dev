@@ -122,7 +122,7 @@ class FixBrokenApiTask:
         result = run_pytest_in_sandbox(files=files, tests=tests, timeout_seconds=8)
         passed = int(result["passed"])
         total = int(result["total"])
-        pass_ratio = 0.0 if total == 0 else passed / total
+        pass_ratio = _SCORE_MIN if total == 0 else passed / total  # never a raw 0.0
         return {
             "passed": passed,
             "total": total,
