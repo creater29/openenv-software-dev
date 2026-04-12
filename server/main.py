@@ -4,6 +4,7 @@ import random
 from fastapi import FastAPI, HTTPException
 
 from server.env import ActionModel, OpenEnvSWEEnv, ResetRequest, StateResponse, StepResponse
+from server.utils.graders import sanitize_any
 
 app = FastAPI(title="SWE-Sim OpenEnv Server", version="1.0.0")
 env = OpenEnvSWEEnv()
@@ -14,14 +15,16 @@ _DIFFICULTIES = ["easy", "medium", "hard"]
 # Sentinel reward returned by /reset.
 # Every float must be strictly inside (0, 1) — the openenv validator rejects
 # exactly 0.0 and exactly 1.0 in ANY numeric field of the response.
-_RESET_REWARD = {
+# sanitize_any() is called at module load so that any future edit to these
+# literal values is automatically clamped before the server ever starts.
+_RESET_REWARD = sanitize_any({
     "reward": 0.001,
     "tests_passed_ratio": 0.001,
     "improvement_over_last_step": 0.001,
     "step_penalty": 0.001,
     "destructive_action_penalty": 0.001,
     "components": {"reset": 0.001},
-}
+})
 
 
 @app.get("/")

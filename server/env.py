@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from server.tasks.task_debug_hidden import DebugHiddenStateTask
 from server.tasks.task_fix_api import FixBrokenApiTask
 from server.tasks.task_resolve_ci import ResolveCIPipelineTask
-from server.utils.graders import sanitize_any
+from server.utils.graders import sanitize_any, clamp_score
 
 
 class ObservationModel(BaseModel):
@@ -135,7 +135,7 @@ class OpenEnvSWEEnv:
             return StateResponse(ready=False)
         task = self._episode.task
         raw_score = task.current_score
-        safe_score = max(0.001, min(0.999, float(raw_score))) if raw_score else 0.001
+        safe_score = clamp_score(float(raw_score)) if raw_score else 0.001
         return StateResponse(
             ready=True,
             task=task.name,
