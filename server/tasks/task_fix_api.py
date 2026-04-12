@@ -33,8 +33,8 @@ class FixBrokenApiTask:
         return {
             "task": self.name,
             "difficulty": self.difficulty,
-            "step": str(self.steps_taken),      # string — validator rejects int 0 or 1
-            "max_steps": str(self.max_steps),   # string — same reason
+            "step": self.steps_taken,
+            "max_steps": self.max_steps,
             "file": self.file_name,
             "code": self.current_code,
             "error_log": self.error_log,

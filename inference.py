@@ -120,7 +120,7 @@ def run_episode(task: str, difficulty: str, llm_client: OpenAI, http_client: htt
                 observation = step_resp["observation"]
                 reward_value = float(step_resp["reward"]["reward"])
                 done = bool(step_resp["done"])
-                score = float(step_resp["info"].get("score", step_resp["reward"].get("tests_passed_ratio", 0.0)))
+                score = float(step_resp["info"].get("score", step_resp["reward"].get("tests_passed_ratio", 0.001)))
             except Exception as exc:  # noqa: BLE001
                 step_error = str(exc)
                 done = True

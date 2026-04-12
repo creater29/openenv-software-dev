@@ -16,8 +16,8 @@ class ObservationModel(BaseModel):
 
     task: str = Field(description="Current task identifier.")
     difficulty: str = Field(description="Current difficulty level: easy, medium, or hard.")
-    step: str = Field(description="Current step count in this episode.")
-    max_steps: str = Field(description="Maximum allowed steps for this episode.")
+    step: int = Field(description="Current step count in this episode.")
+    max_steps: int = Field(description="Maximum allowed steps for this episode.")
     files: Optional[Dict[str, str]] = Field(default=None, description="Map of filename to contents.")
     file: Optional[str] = Field(default=None, description="Primary file name for single-file tasks.")
     code: Optional[str] = Field(default=None, description="Primary code blob for single-file tasks.")
@@ -64,10 +64,10 @@ class StateResponse(BaseModel):
     ready: bool
     task: Optional[str] = None
     difficulty: Optional[str] = None
-    step: str = "0"        # string — validator rejects integer 0 or 1 as a score boundary
-    max_steps: str = "0"   # string — same reason
+    step: int = 0
+    max_steps: int = 0
     done: bool = False
-    score: float = 0.001          # default is safe — never 0.0
+    score: float = 0.001
     internal: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -140,8 +140,8 @@ class OpenEnvSWEEnv:
             ready=True,
             task=task.name,
             difficulty=task.difficulty,
-            step=str(task.steps_taken),      # string — validator rejects int 0 or 1
-            max_steps=str(task.max_steps),   # string — same reason
+            step=task.steps_taken,
+            max_steps=task.max_steps,
             done=self._episode.done,
             score=safe_score,
             internal=_sanitize_state_internal(task.state()),
