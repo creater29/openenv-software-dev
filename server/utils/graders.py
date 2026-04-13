@@ -2,25 +2,44 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-# openenv validate walks the ENTIRE response tree and rejects any float that is
-# exactly 0.0 or exactly 1.0.  Every float we emit must live in the open
-# interval (0, 1).  These two constants define the safe clamped bounds.
-_SCORE_MIN: float = 0.001
-_SCORE_MAX: float = 0.999
+# The openenv validator rejects any float that is exactly 0.0 or exactly 1.0
+# anywhere in the JSON response — including nested dicts and lists.
+# Every float we emit must live in the strictly open interval (0, 1).
+_SCORE_MIN: float = 0.001   # replaces raw 0.0 / negative values
+_SCORE_MAX: float = 0.999   # replaces raw 1.0 / values >= 1
 
 
 def clamp_score(value: float) -> float:
-    """Clamp a single float to the open interval (0, 1) — never 0.0 or 1.0."""
-    return max(_SCORE_MIN, min(_SCORE_MAX, value))
+    """Clamp *value* into the open interval (_SCORE_MIN, _SCORE_MAX).
+
+    This is the single chokepoint that prevents 0.0 and 1.0 from ever
+    entering a response.  Call it at every division site AND at every
+    formula result — defence in depth.
+    """
+    return max(_SCORE_MIN, min(_SCORE_MAX, float(value)))
+
+
+def safe_ratio(passed: int, total: int) -> float:
+    """Convert a passed/total test count into a clamped (0, 1) float.
+
+    This replaces the pattern ``0.0 if total == 0 else passed / total``
+    that appeared in all three task files.  The raw division ``passed /
+    total`` can yield exactly 1.0 when all tests pass; wrapping with
+    clamp_score() ensures that never reaches the validator.
+    """
+    if total <= 0:
+        return _SCORE_MIN           # no tests ran → minimum, not zero
+    raw = passed / total            # may be 0.0 or 1.0 — clamped below
+    return clamp_score(raw)
 
 
 def sanitize_any(obj: Any) -> Any:
     """Recursively walk *obj* and clamp every float to (_SCORE_MIN, _SCORE_MAX).
 
-    The openenv validator recurses into every nested dict and list in the JSON
-    response, including reward.components and observation.metadata.weights.
+    The openenv validator recurses into every nested dict and list in the
+    JSON response, including reward.components and observation.metadata.weights.
     Apply this to BOTH the reward dict AND the full observation dict before
-    returning any response.
+    returning any HTTP response.
     """
     if isinstance(obj, dict):
         return {k: sanitize_any(v) for k, v in obj.items()}
@@ -33,20 +52,20 @@ def sanitize_any(obj: Any) -> Any:
 
 
 def compute_destructive_penalty(files: Dict[str, str]) -> float:
-    """Penalize destructive edits (deleting most code across files)."""
+    """Return a clamped penalty for destructive edits (deleting most code)."""
     if not files:
         return clamp_score(0.3)
 
     empties = 0
     tiny = 0
     for content in files.values():
-        stripped = (content or "").strip()
+        stripped = (content or '').strip()
         if not stripped:
             empties += 1
         elif len(stripped) < 20:
             tiny += 1
 
-    ratio = (empties + (0.5 * tiny)) / max(1, len(files))
+    ratio = (empties + 0.5 * tiny) / max(1, len(files))
     return clamp_score(0.3 * ratio)
 
 
@@ -59,17 +78,21 @@ def compute_shaped_reward(
     w_improve: float,
     w_step_penalty: float,
 ) -> float:
-    """Generic shaped reward shared across tasks, always clamped to (0, 1).
+    """Generic shaped reward clamped to the open interval (0, 1).
 
-    reward = (tests_passed_ratio * W_pass)
-           + (improvement_over_last_step * W_improve)
-           - (steps_taken * W_step_penalty)
-           - destructive_action_penalty
+    Formula:
+        reward = (tests_passed_ratio * W_pass)
+               + (improvement_over_last_step * W_improve)
+               - (steps_taken * W_step_penalty)
+               - destructive_action_penalty
+
+    All inputs are assumed to already be clamped; the final result is
+    clamped again as a last-resort safety net.
     """
     score = (
-        (tests_passed_ratio * w_pass)
-        + (improvement_over_last_step * w_improve)
-        - (steps_taken * w_step_penalty)
+        clamp_score(tests_passed_ratio) * w_pass
+        + clamp_score(improvement_over_last_step) * w_improve
+        - steps_taken * w_step_penalty
         - destructive_action_penalty
     )
     return clamp_score(score)

@@ -3,10 +3,15 @@ from __future__ import annotations
 from typing import Any, Dict, Tuple
 
 from server.utils.code_runner import run_pytest_in_sandbox
-from server.utils.graders import _SCORE_MAX, _SCORE_MIN, clamp_score, compute_destructive_penalty
+from server.utils.graders import (
+    _SCORE_MAX, _SCORE_MIN,
+    clamp_score, compute_destructive_penalty, safe_ratio,
+)
 
 
 class DebugHiddenStateTask:
+    """HARD task — debug a 3-file codebase with hidden state and hidden tests."""
+
     name = "debug_hidden_state"
 
     def __init__(self) -> None:
@@ -15,10 +20,11 @@ class DebugHiddenStateTask:
         self.max_steps = 14
         self.files: Dict[str, str] = {}
         self.error_log = "TypeError: NoneType object is not subscriptable (line 42)"
-        self.visible_ratio = _SCORE_MIN         # never raw 0.0
-        self.hidden_ratio = _SCORE_MIN          # never raw 0.0
-        self.last_combined_ratio = _SCORE_MIN   # never raw 0.0
-        self.current_score = _SCORE_MIN         # never raw 0.0
+        # All internal ratios start at _SCORE_MIN, never raw 0.0
+        self.visible_ratio: float = _SCORE_MIN
+        self.hidden_ratio: float = _SCORE_MIN
+        self.last_combined_ratio: float = _SCORE_MIN
+        self.current_score: float = _SCORE_MIN
 
     def reset(self, difficulty: str = "hard") -> None:
         self.difficulty = difficulty
@@ -27,10 +33,10 @@ class DebugHiddenStateTask:
         self.files = self._broken_files(difficulty)
 
         visible = self._run_visible_tests()
-        self.visible_ratio = visible["ratio"]       # already clamped by _run_visible_tests
-        self.hidden_ratio = _SCORE_MIN              # never raw 0.0 — hidden not yet evaluated
-        self.last_combined_ratio = clamp_score(0.5 * self.visible_ratio)
-        self.current_score = _SCORE_MIN             # never raw 0.0
+        self.visible_ratio = visible["ratio"]           # clamped by safe_ratio()
+        self.hidden_ratio = _SCORE_MIN                  # not yet evaluated — never raw 0.0
+        self.last_combined_ratio = clamp_score(0.5 * self.visible_ratio + 0.5 * self.hidden_ratio)
+        self.current_score = _SCORE_MIN
         self.error_log = visible["output"] or "TypeError: NoneType object is not subscriptable (line 42)"
 
     def observation(self, last_reward: float) -> Dict[str, Any]:
@@ -64,8 +70,9 @@ class DebugHiddenStateTask:
             "error_log": self.error_log,
             "visible_tests": self._visible_summary(),
             "hidden_tests": "[HIDDEN - evaluated at submit]",
-            "visible_ratio": self.visible_ratio,
-            "hidden_ratio": self.hidden_ratio,
+            # Clamp explicitly; env.py also sanitizes but defence in depth matters.
+            "visible_ratio": clamp_score(self.visible_ratio),
+            "hidden_ratio": clamp_score(self.hidden_ratio),
         }
 
     def step(self, action: Dict[str, Any]) -> Tuple[Dict[str, Any], bool, Dict[str, Any]]:
@@ -83,6 +90,7 @@ class DebugHiddenStateTask:
             else:
                 self.error_log = f"Inspected {filename}"
                 info["content"] = self.files[filename]
+
         elif action_name == "patch":
             if filename not in self.files:
                 self.error_log = f"Unknown file: {filename}"
@@ -91,30 +99,49 @@ class DebugHiddenStateTask:
             else:
                 self.files[filename] = code
                 self.error_log = f"Patched {filename}"
+
         elif action_name == "run_tests":
             visible = self._run_visible_tests()
-            self.visible_ratio = visible["ratio"]
+            self.visible_ratio = visible["ratio"]   # clamped
             self.error_log = visible["output"]
-            info["visible_passed"] = str(visible["passed"])   # string — not a score field
+            info["visible_passed"] = str(visible["passed"])
             info["visible_total"] = str(visible["total"])
+
         elif action_name == "submit":
             visible = self._run_visible_tests()
             hidden = self._run_hidden_tests()
-            self.visible_ratio = visible["ratio"]
-            self.hidden_ratio = hidden["ratio"]
+            self.visible_ratio = visible["ratio"]   # clamped
+            self.hidden_ratio = hidden["ratio"]     # clamped
             self.error_log = hidden["output"] or visible["output"]
-            info["visible_passed"] = str(visible["passed"])   # string — not a score field
+            info["visible_passed"] = str(visible["passed"])
             info["visible_total"] = str(visible["total"])
             info["hidden_passed"] = str(hidden["passed"])
             info["hidden_total"] = str(hidden["total"])
             done = True
+
         else:
             self.error_log = f"Unsupported action: {action_name}"
 
-        combined_ratio = clamp_score((self.visible_ratio + self.hidden_ratio) / 2)
-        improvement = combined_ratio - self.last_combined_ratio
+        # Both ratios are already clamped; the average is also clamped.
+        combined_ratio = clamp_score(0.5 * self.visible_ratio + 0.5 * self.hidden_ratio)
+
+        # Improvement can be negative — clamp_score() maps that to _SCORE_MIN
+        # for the reward-dict fields, but the *raw* value enters the formula
+        # where a negative correctly decreases the reward.
+        improvement_raw = combined_ratio - self.last_combined_ratio
+        improvement_clamped = clamp_score(improvement_raw)   # for dict fields only
+
         destructive_penalty = compute_destructive_penalty(self.files)
-        base_reward = (0.5 * self.visible_ratio) + (0.5 * self.hidden_ratio) + (0.2 * improvement) - (0.02 * self.steps_taken) - destructive_penalty
+
+        # Build base reward from raw improvement so negative improvements
+        # correctly penalise the agent, then clamp the final result.
+        base_reward = (
+            0.5 * self.visible_ratio
+            + 0.5 * self.hidden_ratio
+            + 0.2 * improvement_raw          # raw — negative penalises correctly
+            - 0.02 * self.steps_taken
+            - destructive_penalty
+        )
         reward_value = clamp_score(base_reward)
 
         if self.steps_taken >= self.max_steps:
@@ -124,20 +151,20 @@ class DebugHiddenStateTask:
         self.last_combined_ratio = combined_ratio
 
         reward = {
-            "reward": reward_value,
-            "tests_passed_ratio": clamp_score(combined_ratio),
-            "improvement_over_last_step": clamp_score(improvement),
-            "step_penalty": clamp_score(0.02 * self.steps_taken),
+            "reward":                     reward_value,
+            "tests_passed_ratio":         clamp_score(combined_ratio),
+            "improvement_over_last_step": improvement_clamped,
+            "step_penalty":               clamp_score(0.02 * self.steps_taken),
             "destructive_action_penalty": clamp_score(destructive_penalty),
             "components": {
-                "visible": clamp_score(0.5 * self.visible_ratio),
-                "hidden": clamp_score(0.5 * self.hidden_ratio),
-                "improve": clamp_score(0.2 * abs(improvement)),
-                "step": clamp_score(0.02 * self.steps_taken),
+                "visible":     clamp_score(0.5 * self.visible_ratio),
+                "hidden":      clamp_score(0.5 * self.hidden_ratio),
+                "improve":     clamp_score(0.2 * abs(improvement_raw)),
+                "step":        clamp_score(0.02 * self.steps_taken),
                 "destructive": clamp_score(destructive_penalty),
             },
         }
-        info["score"] = self.current_score
+        info["score"] = clamp_score(self.current_score)
         return reward, done, info
 
     def _visible_summary(self) -> str:
@@ -153,18 +180,29 @@ class DebugHiddenStateTask:
         result = run_pytest_in_sandbox(files=self.files, tests=tests, timeout_seconds=10)
         passed = int(result["passed"])
         total = int(result["total"])
-        ratio = _SCORE_MIN if total == 0 else passed / total  # never a raw 0.0
-        return {"passed": passed, "total": total, "ratio": clamp_score(ratio), "output": result["output"]}
+        return {
+            "passed": passed,
+            "total": total,
+            "ratio": safe_ratio(passed, total),   # single division site — clamped
+            "output": result["output"],
+        }
 
     def _run_hidden_tests(self) -> Dict[str, Any]:
         tests = {"test_hidden.py": self._hidden_tests(self.difficulty)}
         result = run_pytest_in_sandbox(files=self.files, tests=tests, timeout_seconds=10)
         passed = int(result["passed"])
         total = int(result["total"])
-        ratio = _SCORE_MIN if total == 0 else passed / total  # never a raw 0.0
-        return {"passed": passed, "total": total, "ratio": clamp_score(ratio), "output": result["output"]}
+        return {
+            "passed": passed,
+            "total": total,
+            "ratio": safe_ratio(passed, total),   # single division site — clamped
+            "output": result["output"],
+        }
 
     def _broken_files(self, difficulty: str) -> Dict[str, str]:
+        # BUG: reset_runtime() sets RUNTIME_CONFIG = None instead of resetting to
+        # DEFAULT_CONFIG. Any call with limit < 0 corrupts global state so that
+        # the next call to get_config() returns None, causing a TypeError crash.
         config_code = (
             "DEFAULT_CONFIG = {'threshold': 10, 'window': 2}\n"
             "RUNTIME_CONFIG = dict(DEFAULT_CONFIG)\n\n"
@@ -172,9 +210,8 @@ class DebugHiddenStateTask:
             "    return RUNTIME_CONFIG\n\n"
             "def reset_runtime():\n"
             "    global RUNTIME_CONFIG\n"
-            "    RUNTIME_CONFIG = None\n"
+            "    RUNTIME_CONFIG = None  # BUG: should be dict(DEFAULT_CONFIG)\n"
         )
-
         db_code = (
             "from config import get_config, reset_runtime\n\n"
             "def fetch_records(limit):\n"
@@ -187,19 +224,19 @@ class DebugHiddenStateTask:
             "    rows = fetch_records(limit)\n"
             "    return [r['value'] for r in rows if r['value'] >= cfg['threshold']]\n"
         )
-
         api_code = (
             "from db import thresholded_values\n\n"
             "def compute_total(limit):\n"
             "    values = thresholded_values(limit)\n"
             "    return sum(values)\n"
         )
-
         if difficulty == "easy":
             config_code = config_code.replace("'threshold': 10", "'threshold': 4")
         if difficulty == "medium":
-            db_code = db_code.replace("return [{'value': i} for i in range(limit)]", "return [{'value': i + 1} for i in range(limit)]")
-
+            db_code = db_code.replace(
+                "return [{'value': i} for i in range(limit)]",
+                "return [{'value': i + 1} for i in range(limit)]",
+            )
         return {"api.py": api_code, "db.py": db_code, "config.py": config_code}
 
     def _visible_tests(self, difficulty: str) -> str:

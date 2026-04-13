@@ -8,12 +8,11 @@ from pydantic import BaseModel, Field
 from server.tasks.task_debug_hidden import DebugHiddenStateTask
 from server.tasks.task_fix_api import FixBrokenApiTask
 from server.tasks.task_resolve_ci import ResolveCIPipelineTask
-from server.utils.graders import sanitize_any, clamp_score
+from server.utils.graders import clamp_score, sanitize_any
 
 
 class ObservationModel(BaseModel):
     """Typed environment observation returned at every transition."""
-
     task: str = Field(description="Current task identifier.")
     difficulty: str = Field(description="Current difficulty level: easy, medium, or hard.")
     step: int = Field(description="Current step count in this episode.")
@@ -31,15 +30,13 @@ class ObservationModel(BaseModel):
 
 class ActionModel(BaseModel):
     """Typed action accepted by the environment."""
-
     action: str = Field(description="Action name: inspect, patch, run_tests, submit.")
     filename: Optional[str] = Field(default=None, description="Target filename for inspect/patch.")
     code: Optional[str] = Field(default=None, description="Replacement code for patch/submit.")
 
 
 class RewardModel(BaseModel):
-    """Structured reward payload with decomposition for RL diagnostics."""
-
+    """Structured reward payload with full decomposition for RL diagnostics."""
     reward: float = Field(description="Final shaped reward strictly in (0, 1).")
     tests_passed_ratio: float = Field(description="Fraction of tests passing, clamped to (0, 1).")
     improvement_over_last_step: float = Field(description="Delta in pass ratio vs previous step.")
@@ -67,7 +64,7 @@ class StateResponse(BaseModel):
     step: int = 0
     max_steps: int = 0
     done: bool = False
-    score: float = 0.001
+    score: float = 0.001   # default is safe — never 0.0
     internal: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -77,22 +74,21 @@ class _EpisodeState:
     done: bool = False
 
 
+# ---------------------------------------------------------------------------
+# Builder helpers — these are the FINAL sanitization layer before Pydantic
+# ---------------------------------------------------------------------------
+
 def _build_observation(task_obj: Any, last_reward: float) -> ObservationModel:
-    """Build ObservationModel, sanitizing ALL floats recursively."""
+    """Build ObservationModel, sanitizing every float recursively via sanitize_any()."""
     raw = task_obj.observation(last_reward=last_reward)
     clean = sanitize_any(raw)
     return ObservationModel(**clean)
 
 
 def _build_reward(reward_dict: Dict[str, Any]) -> RewardModel:
-    """Build RewardModel, sanitizing ALL floats including nested components."""
+    """Build RewardModel, sanitizing all floats including nested components."""
     clean = sanitize_any(reward_dict)
     return RewardModel(**clean)
-
-
-def _sanitize_state_internal(internal: Dict[str, Any]) -> Dict[str, Any]:
-    """Sanitize the internal state dict returned by task.state()."""
-    return sanitize_any(internal)
 
 
 class OpenEnvSWEEnv:
@@ -112,7 +108,7 @@ class OpenEnvSWEEnv:
         task_obj = self._task_registry[task]()
         task_obj.reset(difficulty=difficulty)
         self._episode = _EpisodeState(task=task_obj, done=False)
-        # Use 0.001 as initial last_reward — 0.0 is rejected by the validator
+        # Pass 0.001 as initial last_reward — raw 0.0 is rejected by the validator.
         return _build_observation(task_obj, last_reward=0.001)
 
     def step(self, action: ActionModel) -> Tuple[ObservationModel, RewardModel, bool, Dict[str, Any]]:
@@ -126,16 +122,22 @@ class OpenEnvSWEEnv:
 
         observation = _build_observation(self._episode.task, last_reward=reward_dict["reward"])
         reward = _build_reward(reward_dict)
-        # Sanitize info floats too (score field)
+        # sanitize_any() also cleans the info dict (e.g. the "score" float).
         clean_info = sanitize_any(info)
         return observation, reward, done, clean_info
 
     def state(self) -> StateResponse:
         if self._episode is None:
             return StateResponse(ready=False)
+
         task = self._episode.task
         raw_score = task.current_score
-        safe_score = clamp_score(float(raw_score)) if raw_score else 0.001
+
+        # BUG FIX: previous code used "if raw_score" which is falsy for 0.0.
+        # After our fix, current_score is always >= _SCORE_MIN (0.001) so it is
+        # always truthy — but we guard with "is not None" for correctness.
+        safe_score = clamp_score(float(raw_score)) if raw_score is not None else 0.001
+
         return StateResponse(
             ready=True,
             task=task.name,
@@ -144,5 +146,6 @@ class OpenEnvSWEEnv:
             max_steps=task.max_steps,
             done=self._episode.done,
             score=safe_score,
-            internal=_sanitize_state_internal(task.state()),
+            # sanitize_any() clamps every float in the internal state dict too.
+            internal=sanitize_any(task.state()),
         )
