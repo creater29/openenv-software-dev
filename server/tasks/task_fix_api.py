@@ -5,9 +5,16 @@ from typing import Any, Dict, List, Tuple
 from server.utils.code_runner import run_pytest_in_sandbox
 from server.utils.graders import (
     _SCORE_MAX, _SCORE_MIN,
-    clamp_score, compute_destructive_penalty,
+    guard_score, compute_destructive_penalty,
     compute_shaped_reward, safe_ratio,
 )
+
+# guard_score is the canonical if/else gate:
+#   if score == 0  → 0.001
+#   elif score == 1 → 0.999
+#   else            → score (unchanged)
+# clamp_score is an alias for the same function; we use guard_score here
+# so the intent is explicit at every call-site.
 
 
 class FixBrokenApiTask:
@@ -22,9 +29,9 @@ class FixBrokenApiTask:
         self.file_name = "app.py"
         self.current_code = ""
         self.error_log = ""
-        # Initialise to _SCORE_MIN so internal state never holds raw 0.0
-        self.last_pass_ratio: float = _SCORE_MIN
-        self.current_score: float = _SCORE_MIN
+        # ── if/else guard at init: never let internal state hold raw 0.0 ──
+        self.last_pass_ratio: float = _SCORE_MIN   # 0.0 → 0.001
+        self.current_score: float   = _SCORE_MIN   # 0.0 → 0.001
 
     def reset(self, difficulty: str = "medium") -> None:
         self.difficulty = difficulty
@@ -32,14 +39,11 @@ class FixBrokenApiTask:
         self.max_steps = {"easy": 4, "medium": 5, "hard": 6}.get(difficulty, 5)
         self.current_code = self._broken_code(difficulty)
         baseline = self._evaluate_code(self.current_code)
-        # _evaluate_code() already returns a clamped ratio via safe_ratio()
+        # safe_ratio() already ran the if/else guard at the division site.
         self.last_pass_ratio = baseline["pass_ratio"]
+        # ── if/else guard: reset score to floor, never raw 0.0 ──
         self.current_score = _SCORE_MIN
         self.error_log = baseline["output"] or "NameError in route handler"
-
-    # ------------------------------------------------------------------ #
-    # OpenEnv interface                                                     #
-    # ------------------------------------------------------------------ #
 
     def observation(self, last_reward: float) -> Dict[str, Any]:
         return {
@@ -54,12 +58,14 @@ class FixBrokenApiTask:
             "files": None,
             "visible_tests": None,
             "hidden_tests": None,
-            "last_reward": last_reward,      # already clamped by caller
+            # ── if/else guard on last_reward: caller passes clamped value,
+            #    but guard_score() is a no-op for interior values ──
+            "last_reward": guard_score(last_reward),
             "metadata": {
                 "allowed_actions": ["inspect", "submit"],
-                # Weights are floats in the observation; sanitize_any() in env.py
-                # will clamp them, but we keep them away from 0.0/1.0 explicitly.
                 "weights": {
+                    # Weights kept away from 0.0/1.0 — sanitize_any() in env.py
+                    # will guard them too, but explicit is better than implicit.
                     "W_pass": 0.75,
                     "W_improve": 0.25,
                     "W_step_penalty": 0.03,
@@ -72,8 +78,8 @@ class FixBrokenApiTask:
             "file": self.file_name,
             "code": self.current_code,
             "error": self.error_log,
-            # Explicitly clamped — this dict is sanitized by env.py, but belt + suspenders.
-            "tests_passed_ratio": clamp_score(self.last_pass_ratio),
+            # ── if/else guard: 0.0 → 0.001, 1.0 → 0.999 ──
+            "tests_passed_ratio": guard_score(self.last_pass_ratio),
         }
 
     def step(self, action: Dict[str, Any]) -> Tuple[Dict[str, Any], bool, Dict[str, Any]]:
@@ -83,7 +89,8 @@ class FixBrokenApiTask:
         self.steps_taken += 1
         info: Dict[str, Any] = {"action": action_name}
 
-        current_ratio = self.last_pass_ratio   # already clamped
+        # ── current_ratio starts from last_pass_ratio — already guarded ──
+        current_ratio = self.last_pass_ratio
 
         if action_name == "inspect":
             self.error_log = self.error_log or "Inspecting current stack trace"
@@ -94,24 +101,21 @@ class FixBrokenApiTask:
             else:
                 self.current_code = submitted_code
                 result = self._evaluate_code(self.current_code)
-                # pass_ratio comes from safe_ratio() — guaranteed clamped
+                # ── if/else guard happens inside safe_ratio() ──
                 current_ratio = result["pass_ratio"]
                 self.error_log = result["output"]
-                # Store counts as strings so the validator never sees raw int/float test counts
+                # Counts stored as strings — validator never sees them as floats.
                 info["tests_passed"] = str(result["passed"])
-                info["tests_total"] = str(result["total"])
+                info["tests_total"]  = str(result["total"])
         else:
             self.error_log = f"Unsupported action for {self.name}: {action_name}"
 
-        # Clamp improvement: can be negative if agent broke something.
-        # Passing a negative to compute_shaped_reward is fine — it further
-        # reduces the reward — but we clamp for the reward dict fields.
         improvement = current_ratio - self.last_pass_ratio
         destructive_penalty = compute_destructive_penalty({self.file_name: self.current_code})
 
         reward_value = compute_shaped_reward(
-            tests_passed_ratio=current_ratio,        # already clamped
-            improvement_over_last_step=improvement,  # may be negative — handled inside
+            tests_passed_ratio=current_ratio,
+            improvement_over_last_step=improvement,
             steps_taken=self.steps_taken,
             destructive_action_penalty=destructive_penalty,
             w_pass=0.75,
@@ -120,45 +124,43 @@ class FixBrokenApiTask:
         )
 
         self.last_pass_ratio = current_ratio
-        self.current_score = clamp_score(current_ratio)
+        # ── if/else guard at every score assignment ──
+        self.current_score = guard_score(current_ratio)
 
-        # Episode is done when the agent reaches _SCORE_MAX (≥0.999) OR exhausts steps.
-        # We never compare against raw 1.0 — that value can no longer appear in current_ratio.
         done = (current_ratio >= _SCORE_MAX) or (self.steps_taken >= self.max_steps)
 
         reward = {
-            "reward":                   reward_value,
-            # Every field clamped individually — defence in depth.
-            "tests_passed_ratio":       clamp_score(current_ratio),
-            "improvement_over_last_step": clamp_score(improvement),
-            "step_penalty":             clamp_score(0.03 * self.steps_taken),
-            "destructive_action_penalty": clamp_score(destructive_penalty),
+            # ── if/else guard on every individual reward field ──
+            "reward":                     guard_score(reward_value),
+            "tests_passed_ratio":         guard_score(current_ratio),
+            "improvement_over_last_step": guard_score(improvement),
+            "step_penalty":               guard_score(0.03 * self.steps_taken),
+            "destructive_action_penalty": guard_score(destructive_penalty),
             "components": {
-                "pass":       clamp_score(0.75 * current_ratio),
-                # abs() so negative improvement doesn't flip the component negative
-                "improve":    clamp_score(0.25 * abs(improvement)),
-                "step":       clamp_score(0.03 * self.steps_taken),
-                "destructive": clamp_score(destructive_penalty),
+                # ── if/else guard on every component ──
+                "pass":        guard_score(0.75 * current_ratio),
+                "improve":     guard_score(0.25 * abs(improvement)),
+                "step":        guard_score(0.03 * self.steps_taken),
+                "destructive": guard_score(destructive_penalty),
             },
         }
-        info["score"] = clamp_score(self.current_score)
+        # ── if/else guard on info score ──
+        info["score"] = guard_score(self.current_score)
         return reward, done, info
-
-    # ------------------------------------------------------------------ #
-    # Internal helpers                                                      #
-    # ------------------------------------------------------------------ #
 
     def _evaluate_code(self, code: str) -> Dict[str, Any]:
         files = {self.file_name: code}
         tests = {"test_app.py": self._hidden_tests(self.difficulty)}
         result = run_pytest_in_sandbox(files=files, tests=tests, timeout_seconds=8)
         passed = int(result["passed"])
-        total = int(result["total"])
-        # safe_ratio() is THE place where passed/total is converted to a float.
-        # It clamps at the division site — so 3/3 → 0.999, not 1.0.
+        total  = int(result["total"])
+        # ── safe_ratio() runs the if/else guard at the division site ──
+        # 3/3 → guard_score(1.0) → 0.999 (elif branch)
+        # 0/3 → guard_score(0.0) → 0.001 (if branch)
+        # 2/3 → guard_score(0.667) → 0.667 (else branch)
         return {
             "passed": passed,
-            "total": total,
+            "total":  total,
             "pass_ratio": safe_ratio(passed, total),
             "output": result["output"],
         }
@@ -169,8 +171,6 @@ class FixBrokenApiTask:
 
     def _broken_code(self, difficulty: str) -> str:
         if difficulty == "easy":
-            # Bug: wrong sentinel for empty list — sum([]) should be 0, not -1.
-            # Tests pass: [1,2,3]==6 ✓, [10]==10 ✓, []==-1≠0 ✗  →  2/3 = 0.667
             return (
                 "from fastapi import FastAPI\n\n"
                 "app = FastAPI()\n\n"
@@ -182,8 +182,6 @@ class FixBrokenApiTask:
                 "    return {'total': compute_total(values)}\n"
             )
         if difficulty == "hard":
-            # Bug: takes abs() before summing — [5,-2,4] gives 11 not 7.
-            # Tests pass: [1,2,3]==6 ✓, []==0 ✓, [5,-2,4]==11≠7 ✗  →  2/3 = 0.667
             return (
                 "from fastapi import FastAPI\n\n"
                 "app = FastAPI()\n\n"
@@ -194,8 +192,6 @@ class FixBrokenApiTask:
                 "    values = [1, 2, 3]\n"
                 "    return {'total': compute_total(values)}\n"
             )
-        # medium: Bug: filters negatives — [-1,1,2] gives 3 not 2.
-        # Tests pass: [4,6]==10 ✓, [0,0,0]==0 ✓, [-1,1,2]==3≠2 ✗  →  2/3 = 0.667
         return (
             "from fastapi import FastAPI\n\n"
             "app = FastAPI()\n\n"

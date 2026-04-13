@@ -8,46 +8,46 @@ from pydantic import BaseModel, Field
 from server.tasks.task_debug_hidden import DebugHiddenStateTask
 from server.tasks.task_fix_api import FixBrokenApiTask
 from server.tasks.task_resolve_ci import ResolveCIPipelineTask
-from server.utils.graders import clamp_score, sanitize_any
+from server.utils.graders import guard_score, sanitize_any
 
 
 class ObservationModel(BaseModel):
     """Typed environment observation returned at every transition."""
     task: str = Field(description="Current task identifier.")
-    difficulty: str = Field(description="Current difficulty level: easy, medium, or hard.")
+    difficulty: str = Field(description="Difficulty level: easy, medium, or hard.")
     step: int = Field(description="Current step count in this episode.")
     max_steps: int = Field(description="Maximum allowed steps for this episode.")
-    files: Optional[Dict[str, str]] = Field(default=None, description="Map of filename to contents.")
-    file: Optional[str] = Field(default=None, description="Primary file name for single-file tasks.")
-    code: Optional[str] = Field(default=None, description="Primary code blob for single-file tasks.")
-    error_log: Optional[str] = Field(default=None, description="Latest traceback or test failure output.")
-    test_results: Optional[str] = Field(default=None, description="Human-readable test status.")
-    visible_tests: Optional[str] = Field(default=None, description="Visible test status.")
-    hidden_tests: Optional[str] = Field(default=None, description="Hidden test status description.")
-    last_reward: float = Field(description="Reward returned by the previous step.")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Task-specific metadata.")
+    files: Optional[Dict[str, str]] = Field(default=None)
+    file: Optional[str] = Field(default=None)
+    code: Optional[str] = Field(default=None)
+    error_log: Optional[str] = Field(default=None)
+    test_results: Optional[str] = Field(default=None)
+    visible_tests: Optional[str] = Field(default=None)
+    hidden_tests: Optional[str] = Field(default=None)
+    last_reward: float = Field(description="Reward from previous step — always in (0,1).")
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ActionModel(BaseModel):
     """Typed action accepted by the environment."""
     action: str = Field(description="Action name: inspect, patch, run_tests, submit.")
-    filename: Optional[str] = Field(default=None, description="Target filename for inspect/patch.")
-    code: Optional[str] = Field(default=None, description="Replacement code for patch/submit.")
+    filename: Optional[str] = Field(default=None)
+    code: Optional[str] = Field(default=None)
 
 
 class RewardModel(BaseModel):
-    """Structured reward payload with full decomposition for RL diagnostics."""
-    reward: float = Field(description="Final shaped reward strictly in (0, 1).")
-    tests_passed_ratio: float = Field(description="Fraction of tests passing, clamped to (0, 1).")
+    """Structured reward with full decomposition — every float in (0, 1)."""
+    reward: float = Field(description="Shaped reward strictly in (0, 1).")
+    tests_passed_ratio: float = Field(description="Test pass fraction, clamped to (0, 1).")
     improvement_over_last_step: float = Field(description="Delta in pass ratio vs previous step.")
-    step_penalty: float = Field(description="Penalty applied for current step count.")
+    step_penalty: float = Field(description="Penalty for current step count.")
     destructive_action_penalty: float = Field(description="Penalty for destructive edits.")
-    components: Dict[str, float] = Field(default_factory=dict, description="Named reward terms.")
+    components: Dict[str, float] = Field(default_factory=dict)
 
 
 class ResetRequest(BaseModel):
-    task: Optional[str] = Field(default=None, description="Task key.")
-    difficulty: Optional[str] = Field(default=None, description="Difficulty level.")
+    task: Optional[str] = Field(default=None)
+    difficulty: Optional[str] = Field(default=None)
 
 
 class StepResponse(BaseModel):
@@ -64,7 +64,8 @@ class StateResponse(BaseModel):
     step: int = 0
     max_steps: int = 0
     done: bool = False
-    score: float = 0.001   # default is safe — never 0.0
+    # ── if/else guard at default: never 0.0 ──
+    score: float = 0.001
     internal: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -74,19 +75,23 @@ class _EpisodeState:
     done: bool = False
 
 
-# ---------------------------------------------------------------------------
-# Builder helpers — these are the FINAL sanitization layer before Pydantic
-# ---------------------------------------------------------------------------
+# ── Builder helpers — final sanitization layer before Pydantic ───────────────
 
 def _build_observation(task_obj: Any, last_reward: float) -> ObservationModel:
-    """Build ObservationModel, sanitizing every float recursively via sanitize_any()."""
-    raw = task_obj.observation(last_reward=last_reward)
+    """Build ObservationModel with guard_score() applied via sanitize_any()
+    on every float in the entire observation dict recursively.
+    """
+    raw   = task_obj.observation(last_reward=last_reward)
+    # sanitize_any() calls guard_score() (the if/else gate) on every float
+    # found anywhere in the dict tree — weights, last_reward, ratios, all of it.
     clean = sanitize_any(raw)
     return ObservationModel(**clean)
 
 
 def _build_reward(reward_dict: Dict[str, Any]) -> RewardModel:
-    """Build RewardModel, sanitizing all floats including nested components."""
+    """Build RewardModel with guard_score() applied via sanitize_any()
+    on every float, including all nested component values.
+    """
     clean = sanitize_any(reward_dict)
     return RewardModel(**clean)
 
@@ -97,9 +102,9 @@ class OpenEnvSWEEnv:
     def __init__(self) -> None:
         self._episode: Optional[_EpisodeState] = None
         self._task_registry = {
-            "fix_broken_api": FixBrokenApiTask,
+            "fix_broken_api":      FixBrokenApiTask,
             "resolve_ci_pipeline": ResolveCIPipelineTask,
-            "debug_hidden_state": DebugHiddenStateTask,
+            "debug_hidden_state":  DebugHiddenStateTask,
         }
 
     def reset(self, task: str, difficulty: str = "medium") -> ObservationModel:
@@ -108,7 +113,7 @@ class OpenEnvSWEEnv:
         task_obj = self._task_registry[task]()
         task_obj.reset(difficulty=difficulty)
         self._episode = _EpisodeState(task=task_obj, done=False)
-        # Pass 0.001 as initial last_reward — raw 0.0 is rejected by the validator.
+        # ── if/else guard: pass 0.001 not 0.0 as initial last_reward ──
         return _build_observation(task_obj, last_reward=0.001)
 
     def step(self, action: ActionModel) -> Tuple[ObservationModel, RewardModel, bool, Dict[str, Any]]:
@@ -121,22 +126,27 @@ class OpenEnvSWEEnv:
         self._episode.done = done
 
         observation = _build_observation(self._episode.task, last_reward=reward_dict["reward"])
-        reward = _build_reward(reward_dict)
-        # sanitize_any() also cleans the info dict (e.g. the "score" float).
-        clean_info = sanitize_any(info)
+        reward      = _build_reward(reward_dict)
+        # sanitize_any() guards every float in info too (e.g. the "score" field).
+        clean_info  = sanitize_any(info)
         return observation, reward, done, clean_info
 
     def state(self) -> StateResponse:
         if self._episode is None:
             return StateResponse(ready=False)
 
-        task = self._episode.task
+        task      = self._episode.task
         raw_score = task.current_score
 
-        # BUG FIX: previous code used "if raw_score" which is falsy for 0.0.
-        # After our fix, current_score is always >= _SCORE_MIN (0.001) so it is
-        # always truthy — but we guard with "is not None" for correctness.
-        safe_score = clamp_score(float(raw_score)) if raw_score is not None else 0.001
+        # ── explicit if/else guard: 0 → 0.001, 1 → 0.999, else unchanged ──
+        if raw_score is None:
+            safe_score = 0.001
+        elif raw_score <= 0.0:    # if score is 0 → give 0.001
+            safe_score = 0.001
+        elif raw_score >= 1.0:    # elif score is 1 → give 0.999
+            safe_score = 0.999
+        else:                     # else → use as-is (interior value)
+            safe_score = float(raw_score)
 
         return StateResponse(
             ready=True,
@@ -146,6 +156,6 @@ class OpenEnvSWEEnv:
             max_steps=task.max_steps,
             done=self._episode.done,
             score=safe_score,
-            # sanitize_any() clamps every float in the internal state dict too.
+            # sanitize_any() guards every float inside the internal state dict.
             internal=sanitize_any(task.state()),
         )

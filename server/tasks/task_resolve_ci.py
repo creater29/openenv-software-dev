@@ -5,7 +5,7 @@ from typing import Any, Dict, Tuple
 from server.utils.code_runner import run_pytest_in_sandbox
 from server.utils.graders import (
     _SCORE_MAX, _SCORE_MIN,
-    clamp_score, compute_destructive_penalty,
+    guard_score, compute_destructive_penalty,
     compute_shaped_reward, safe_ratio,
 )
 
@@ -21,8 +21,9 @@ class ResolveCIPipelineTask:
         self.max_steps = 10
         self.files: Dict[str, str] = {}
         self.error_log = ""
+        # ── if/else guard at init: never hold raw 0.0 ──
         self.last_pass_ratio: float = _SCORE_MIN
-        self.current_score: float = _SCORE_MIN
+        self.current_score: float   = _SCORE_MIN
 
     def reset(self, difficulty: str = "medium") -> None:
         self.difficulty = difficulty
@@ -30,9 +31,10 @@ class ResolveCIPipelineTask:
         self.max_steps = {"easy": 8, "medium": 10, "hard": 12}.get(difficulty, 10)
         self.files = self._broken_files(difficulty)
         baseline = self._evaluate(self.files)
-        self.last_pass_ratio = baseline["pass_ratio"]   # clamped by safe_ratio()
-        self.current_score = _SCORE_MIN
-        self.error_log = baseline["output"]
+        # safe_ratio() already applied the if/else guard at the division site.
+        self.last_pass_ratio = baseline["pass_ratio"]
+        self.current_score   = _SCORE_MIN
+        self.error_log       = baseline["output"]
 
     def observation(self, last_reward: float) -> Dict[str, Any]:
         return {
@@ -47,11 +49,12 @@ class ResolveCIPipelineTask:
             "test_results": self._summary(self.last_pass_ratio),
             "visible_tests": None,
             "hidden_tests": None,
-            "last_reward": last_reward,
+            # ── if/else guard on last_reward ──
+            "last_reward": guard_score(last_reward),
             "metadata": {
                 "allowed_actions": ["inspect", "patch", "run_tests", "submit"],
-                # W_pass is 0.999 not 1.0 — literal 1.0 in a float field is rejected.
                 "weights": {
+                    # 0.999 not 1.0 — literal 1.0 is rejected by the validator.
                     "W_pass": 0.999,
                     "W_improve": 0.3,
                     "W_step_penalty": 0.05,
@@ -64,17 +67,18 @@ class ResolveCIPipelineTask:
             "files": self.files,
             "test_results": self._summary(self.last_pass_ratio),
             "error_log": self.error_log,
-            "tests_passed_ratio": clamp_score(self.last_pass_ratio),
+            # ── if/else guard: 0.0 → 0.001, 1.0 → 0.999 ──
+            "tests_passed_ratio": guard_score(self.last_pass_ratio),
         }
 
     def step(self, action: Dict[str, Any]) -> Tuple[Dict[str, Any], bool, Dict[str, Any]]:
         action_name = (action.get("action") or "").strip().lower()
-        filename = action.get("filename")
-        code = action.get("code")
+        filename    = action.get("filename")
+        code        = action.get("code")
 
         self.steps_taken += 1
         info: Dict[str, Any] = {"action": action_name}
-        current_ratio = self.last_pass_ratio
+        current_ratio = self.last_pass_ratio   # already guarded
 
         if action_name == "inspect":
             if filename not in self.files:
@@ -94,15 +98,16 @@ class ResolveCIPipelineTask:
 
         elif action_name in {"run_tests", "submit"}:
             result = self._evaluate(self.files)
-            current_ratio = result["pass_ratio"]    # clamped by safe_ratio()
+            # ── if/else guard happens inside safe_ratio() ──
+            current_ratio = result["pass_ratio"]
             self.error_log = result["output"]
             info["tests_passed"] = str(result["passed"])
-            info["tests_total"] = str(result["total"])
+            info["tests_total"]  = str(result["total"])
 
         else:
             self.error_log = f"Unsupported action: {action_name}"
 
-        improvement = current_ratio - self.last_pass_ratio
+        improvement         = current_ratio - self.last_pass_ratio
         destructive_penalty = compute_destructive_penalty(self.files)
 
         reward_value = compute_shaped_reward(
@@ -110,30 +115,33 @@ class ResolveCIPipelineTask:
             improvement_over_last_step=improvement,
             steps_taken=self.steps_taken,
             destructive_action_penalty=destructive_penalty,
-            w_pass=0.999,   # never 1.0 — keeps formula output below 1.0
+            w_pass=0.999,
             w_improve=0.3,
             w_step_penalty=0.05,
         )
 
         self.last_pass_ratio = current_ratio
-        self.current_score = clamp_score(current_ratio)
+        # ── if/else guard at every score assignment ──
+        self.current_score = guard_score(current_ratio)
 
         done = (current_ratio >= _SCORE_MAX) or (self.steps_taken >= self.max_steps)
 
         reward = {
-            "reward":                     reward_value,
-            "tests_passed_ratio":         clamp_score(current_ratio),
-            "improvement_over_last_step": clamp_score(improvement),
-            "step_penalty":               clamp_score(0.05 * self.steps_taken),
-            "destructive_action_penalty": clamp_score(destructive_penalty),
+            # ── if/else guard on every reward field ──
+            "reward":                     guard_score(reward_value),
+            "tests_passed_ratio":         guard_score(current_ratio),
+            "improvement_over_last_step": guard_score(improvement),
+            "step_penalty":               guard_score(0.05 * self.steps_taken),
+            "destructive_action_penalty": guard_score(destructive_penalty),
             "components": {
-                "pass":        clamp_score(0.999 * current_ratio),
-                "improve":     clamp_score(0.3 * abs(improvement)),
-                "step":        clamp_score(0.05 * self.steps_taken),
-                "destructive": clamp_score(destructive_penalty),
+                "pass":        guard_score(0.999 * current_ratio),
+                "improve":     guard_score(0.3 * abs(improvement)),
+                "step":        guard_score(0.05 * self.steps_taken),
+                "destructive": guard_score(destructive_penalty),
             },
         }
-        info["score"] = clamp_score(self.current_score)
+        # ── if/else guard on info score ──
+        info["score"] = guard_score(self.current_score)
         return reward, done, info
 
     def _evaluate(self, files: Dict[str, str]) -> Dict[str, Any]:
@@ -144,22 +152,20 @@ class ResolveCIPipelineTask:
         )
         passed = int(result["passed"])
         total  = int(result["total"])
-        # safe_ratio() is the single division site — clamps 1.0 → 0.999
+        # ── safe_ratio() runs the if/else guard at the division site ──
         return {
-            "passed": passed,
-            "total": total,
+            "passed":     passed,
+            "total":      total,
             "pass_ratio": safe_ratio(passed, total),
-            "output": result["output"],
+            "output":     result["output"],
         }
 
     def _summary(self, ratio: float) -> str:
-        total = 5 if self.difficulty == "hard" else 4
+        total  = 5 if self.difficulty == "hard" else 4
         passed = min(total, int(round(ratio * total)))
         return f"{passed} passing, {total - passed} failing"
 
     def _broken_files(self, difficulty: str) -> Dict[str, str]:
-        # BUG: normalize() divides by len(values) instead of sum(values).
-        # The normalised vector does not sum to 1.0, so all pipeline tests fail.
         utils_broken = (
             "def normalize(values):\n"
             "    if not values:\n"
